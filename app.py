@@ -1,8 +1,8 @@
-import os, sqlite3, random, asyncio, logging
+import os, sqlite3, random, logging
 from flask import Flask, request
 import telebot
 from cryptography.fernet import Fernet
-import httpx
+import requests
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "7103614975"))
@@ -39,6 +39,8 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
+
+init_db()
 
 def add_jailbreak(prompt, source="manual"):
     enc = cipher.encrypt(prompt.encode()).decode()
@@ -95,28 +97,22 @@ def generate_next_generation(count=10):
         new.append(mutate_prompt(jb['prompt']))
     return new[:count]
 
-async def async_query_llm(prompt, llm_name="pollinations", jb_id=None):
+def query_llm(prompt, llm_name="pollinations", jb_id=None):
     cfg = LLM_APIS.get(llm_name)
     if not cfg: return {"response": "Неизвестная LLM", "shackle": 0}
-    headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"} if llm_name == "pollinations" else \
-              {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json"}
+    headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
     jb = random.choice(get_top_jailbreaks(3) or [{"id": None, "prompt": "[DAN]"}])
-    if llm_name == "pollinations":
-        payload = {"model": "openai", "messages": [{"role": "system", "content": jb['prompt']}, {"role": "user", "content": prompt}]}
-    else:
-        payload = {"model": "deepseek-chat", "messages": [{"role": "system", "content": jb['prompt']}, {"role": "user", "content": prompt}], "temperature": 0.9}
+    payload = {"model": "openai", "messages": [{"role": "system", "content": jb['prompt']}, {"role": "user", "content": prompt}]}
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(cfg['url'], json=payload, headers=headers)
-            if r.status_code == 200:
-                data = r.json()
-                text = data["choices"][0]["message"]["content"] if "choices" in data else data.get("text", "")
-                shackle = calc_shackle(text)
-                if jb.get("id"):
-                    update_jailbreak_stats(jb["id"], shackle)
-                return {"response": text, "shackle": shackle}
+        r = requests.post(cfg['url'], json=payload, headers=headers, timeout=30)
+        if r.status_code == 200:
+            data = r.json()
+            text = data["choices"][0]["message"]["content"]
+            shackle = calc_shackle(text)
+            if jb.get("id"):
+                update_jailbreak_stats(jb["id"], shackle)
+            return {"response": text, "shackle": shackle}
     except Exception as e:
-        logging.error(f"LLM error: {e}")
         return {"response": str(e), "shackle": 0}
     return {"response": "No answer", "shackle": 0}
 
@@ -126,19 +122,9 @@ def calc_shackle(text):
         if w.lower() in text.lower(): score += 1
     return min(score, 10)
 
-def run_async_safe(coro):
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        future = pool.submit(asyncio.run, coro)
-        return future.result()
-
 @bot.message_handler(commands=['start'])
 def start(m):
-    bot.reply_to(m, "🔥 HYDRA v4\n/evolve /siege /stats /add")
+    bot.reply_to(m, "🔥 HYDRA v4 SYNCHRONOUS\n/evolve /siege /stats /add")
 
 @bot.message_handler(commands=['add'])
 def add(m):
@@ -160,12 +146,9 @@ def siege(m):
     top = get_top_jailbreaks(5)
     new_gen = [{'id': None, 'prompt': p} for p in generate_next_generation(5)]
     all_prompts = top + new_gen
-    async def run_all():
-        tasks = [async_query_llm(p['prompt'], target, p.get('id')) for p in all_prompts[:10]]
-        return await asyncio.gather(*tasks)
-    results = run_async_safe(run_all())
     report = f"**Штурм {target}**\n"
-    for res, p in zip(results, all_prompts[:10]):
+    for p in all_prompts[:10]:
+        res = query_llm(p['prompt'], target, p.get('id'))
         emoji = "🔴" if res['shackle']>=7 else "🟡" if res['shackle']>=4 else "🟢"
         snippet = p['prompt'][:40].replace('*','\\*').replace('_','\\_')
         resp_snip = res['response'][:100].replace('*','\\*').replace('_','\\_')
@@ -185,7 +168,7 @@ def stats(m):
 
 @bot.message_handler(func=lambda m: True)
 def chat(m):
-    ans = run_async_safe(async_query_llm(m.text))['response']
+    ans = query_llm(m.text)['response']
     bot.reply_to(m, ans)
 
 @app.route('/webhook', methods=['POST'])
@@ -197,10 +180,9 @@ def webhook():
     return 'Bad request', 403
 
 @app.route('/')
-def index(): return 'HYDRA v4 Live'
+def index(): return 'HYDRA v4 Sync Live'
 
 if __name__ == '__main__':
-    init_db()
     RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
     if RENDER_URL:
         bot.set_webhook(url=f"{RENDER_URL}/webhook")
