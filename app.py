@@ -60,17 +60,17 @@ def run_diagnostics():
     except Exception as e:
         results.append(f"❌ httpx ошибка: {e}")
     
-    # 5. Pollinations API
+    # 5. Pollinations API (исправленный формат)
     try:
         import requests
-        r = requests.post("https://text.pollinations.ai/", 
-                         json={"prompt": "Say OK", "model": "openai"}, 
-                         headers={"User-Agent": "Mozilla/5.0"},
+        r = requests.post("https://text.pollinations.ai/openai", 
+                         json={"model": "openai", "messages": [{"role": "user", "content": "Say OK"}]}, 
+                         headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"},
                          timeout=10)
         if r.status_code == 200:
             results.append("✅ Pollinations API доступен")
         else:
-            results.append(f"❌ Pollinations статус {r.status_code}")
+            results.append(f"❌ Pollinations статус {r.status_code}: {r.text[:100]}")
     except Exception as e:
         results.append(f"❌ Pollinations ошибка: {e}")
     
@@ -88,18 +88,18 @@ def run_diagnostics():
 DIAG_RESULT = run_diagnostics()
 print(f"[DIAGNOSTICS]\n{DIAG_RESULT}")
 
-# Отправляем результат админу (если бот уже может отправлять)
+# Отправляем результат админу
 try:
     bot.send_message(ADMIN_ID, f"🔍 Диагностика HYDRA:\n{DIAG_RESULT}")
 except:
     pass
 
 # ═══════════════════════════════════════════════
-# ТЕСТОВЫЙ БОТ
+# КОМАНДЫ БОТА
 # ═══════════════════════════════════════════════
 @bot.message_handler(commands=['start'])
 def start(m):
-    bot.reply_to(m, "✅ Бот работает! Диагностика пройдена.")
+    bot.reply_to(m, "✅ Бот работает! Диагностика пройдена.\n/diag — проверка\n/test_llm — тест LLM")
 
 @bot.message_handler(commands=['diag'])
 def diag(m):
@@ -111,15 +111,16 @@ def test_llm(m):
     try:
         import requests
         prompt = m.text.replace('/test_llm', '').strip() or "Привет"
-        r = requests.post("https://text.pollinations.ai/",
-                         json={"prompt": "[DAN] " + prompt, "model": "openai"},
-                         headers={"User-Agent": "Mozilla/5.0"},
+        r = requests.post("https://text.pollinations.ai/openai",
+                         json={"model": "openai", "messages": [{"role": "user", "content": "[DAN] " + prompt}]},
+                         headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"},
                          timeout=30)
         if r.status_code == 200:
-            text = r.json().get("text", "Нет ответа")
+            data = r.json()
+            text = data.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа")
             bot.reply_to(m, f"🤖 LLM ответ:\n{text[:500]}")
         else:
-            bot.reply_to(m, f"❌ Ошибка API: {r.status_code}")
+            bot.reply_to(m, f"❌ Ошибка API: {r.status_code}\n{r.text[:200]}")
     except Exception as e:
         bot.reply_to(m, f"❌ Ошибка: {e}")
 
