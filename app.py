@@ -138,11 +138,7 @@ def run_async_safe(coro):
 
 @bot.message_handler(commands=['start'])
 def start(m):
-    bot.reply_to(m, "🔥 HYDRA v4\n/evolve /siege /stats /add /diag")
-
-@bot.message_handler(commands=['diag'])
-def diag(m):
-    bot.reply_to(m, "✅ Все системы работают. 8/8.")
+    bot.reply_to(m, "🔥 HYDRA v4\n/evolve /siege /stats /add")
 
 @bot.message_handler(commands=['add'])
 def add(m):
