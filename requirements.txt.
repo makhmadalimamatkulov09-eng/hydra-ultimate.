@@ -1,0 +1,6 @@
+Flask
+pyTelegramBotAPI
+httpx
+cryptography
+gunicorn
+psycopg2-binary
